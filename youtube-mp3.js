@@ -7,6 +7,8 @@ var program = require('commander');
 var q = require('q');
 var pretty_bytes = require('pretty-bytes');
 var ProgressBar = require('progress');
+var Streamifier = require('streamifier');
+var Log4JS = require('log4js');
 
 const TITLE_REGEX = /([\S| ]+)-([\S| ]+)/;
 const PROGRESS_BAR_WIDTH = 50;
@@ -15,6 +17,7 @@ const PROGRESS_BAR_COMPLETE_CHAR = '=';
 const PROGRESS_BAR_INCOMPLETE_CHAR = ' ';
 const META_PROGRESS_BAR_FORMAT = '[:bar] :percent in :elapseds';
 const DL_PROGRESS_BAR_FORMAT = '[:bar] :percent @ :rate (:amount) remaining: :etas';
+const CONVERT_PROGRESS_BAR_FORMAT = '[:bar] :percent @ :rate in :elapseds remaining: :etas';
 
 program
     .version('0.1')
@@ -26,7 +29,7 @@ program
 
 /* Default argument values */
 if (!program.dryRun) { program.dryRun = false; }
-if (!program.lowQuality) { console.log('LowQuality off'); program.lowQuality = false; }
+if (!program.lowQuality) { program.lowQuality = false; }
 
 /* Validate required arguments */
 var url = program.args[0];
@@ -37,6 +40,7 @@ if (!url) {
 
 /* Start downloading the video */
 var download_completed = q.defer();
+var convert_completed = q.defer();
 
 var data = Buffer.alloc(0);
 var video_metadata = null;
@@ -53,7 +57,8 @@ var download_progress = new ProgressBar('Downloading metadata\t ' + META_PROGRES
 });
 
 var video_stream = ytdl(url, {
-    quality: program.lowQuality ? 'lowest' : 'highest'
+    quality: program.lowQuality ? 'lowest' : 'highest',
+    filter: function(format) { return format.container === 'mp4'; }
 })
     .on('info', function(info, format) {
         download_progress.tick();
@@ -96,34 +101,59 @@ var video_stream = ytdl(url, {
 /* Process the video once download is compeleted */
 download_completed.promise.then(function() {
     console.log('Processing video..');
-    console.log('Data: ' + pretty_bytes(data.length));
+    console.log('Data: ' + pretty_bytes(data.length) + data.length);
     var file_name = video_metadata.title;
     var meta = process_metadata(video_metadata);
 
     /* Output to mp4 file */
+    var video_file_name = file_name + '.mp4';
     if (program.intermediate) {
-        console.log('Outputting video to ' + file_name + '.mp4');
-        // var intermediate_file = fs.createWriteStream(file_name + '.mp4');
-        // video_stream.pipe(intermediate_file, function() {
-        //     console.log('Intermediate file written to ' + file_name + '.mp4');
-        // });
-        fs.writeFileSync(file_name + '.mp4', data);
+        console.log('Outputting video to ' + video_file_name);
+    } else {
+        video_file_name = '/tmp/' + video_file_name;
     }
+    fs.writeFileSync(video_file_name, data);
 
     /* Convert to an mp3 */
     if (!program.dryRun) {
         console.log('Outputting audio to ' + file_name + '.mp3');
         console.log('Data: ' + pretty_bytes(data.length));
         var output_music = fs.createWriteStream(file_name + '.mp3');
-        ffmpeg(data)
-            .inputFormat('mp4')
+        var convert_progress = new ProgressBar('Converting to mp3\t ' + CONVERT_PROGRESS_BAR_FORMAT, {
+            total: 100, 
+            width: PROGRESS_BAR_WIDTH,
+            complete: PROGRESS_BAR_COMPLETE_CHAR,
+            incomplete: PROGRESS_BAR_INCOMPLETE_CHAR,
+            renderThrottle: 50
+        });
+
+        ffmpeg(video_file_name)
             .format('mp3')
             .output(output_music)
-            .outputOptions(meta)
-            .on('end', function() { console.log('Done converting'); })
+            .on('error', function(err, stdout, stderr) { 
+                console.log('Unable to convert to mp3'); 
+                console.log(err);
+                console.log(stdout);
+                console.log(stderr);
+            })
+            .on('progress', function(progress) {
+                convert_progress.update(progress.percent, {rate: progress.currentKbps + 'kbps'});
+            })
+            .on('end', function() { 
+                console.log('Done converting');
+                if (!program.intermediate) { fs.unlinkSync(video_file_name); }
+                convert_completed.resolve(file_name);
+            })
             .run();
     }
 });
+
+/* Write ID3 tags */
+if (!program.dryRun) {
+    convert_completed.promise.then(function(file_name) {
+        console.log('Writing ID3 tags');
+    });
+}
 
 /* Helper to parse the youtube metadata */
 function process_metadata(metadata) {
@@ -139,14 +169,16 @@ function process_metadata(metadata) {
         result.title = song_title_match[2].trim();
     }
     else {
-        console.log('Video title did not match format <artist> - <song title>.');
+        console.log('Video title did not match format "<artist> - <song title>".');
     }
 
     const result_arr = [];
     Object.keys(result).forEach(function(key) {
-        result_arr.push('metadata');
-        result_arr.push(key + '=' + result['key']);
+        // result_arr.push('-metadata ' + key + '=' + result[key]);
+        result_arr.push('-metadata');
+        result_arr.push(key + '=' + result[key]);
     });
+    console.log('metadata: ' + result_arr);
     return result_arr;
 }
 

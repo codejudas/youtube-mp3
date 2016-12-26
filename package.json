@@ -1,0 +1,21 @@
+{
+  "name": "youtube-mp3",
+  "version": "0.1.0",
+  "description": "Download a youtube video and convert it to mp3",
+  "main": "youtube-mp3.js",
+  "dependencies": {
+    "pretty-bytes": "^4.0.2",
+    "fluent-ffmpeg": "^2.1.0",
+    "commander": "^2.9.0",
+    "progress": "^1.1.8",
+    "ytdl-core": "^0.7.21",
+    "q": "^1.4.1",
+    "streamifier": "^0.1.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Evan Fossier",
+  "license": "ISC"
+}
