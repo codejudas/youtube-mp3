@@ -126,6 +126,7 @@ download_completed.promise.then(function() {
             incomplete: PROGRESS_BAR_INCOMPLETE_CHAR,
             renderThrottle: 50
         });
+        var last = 0;
 
         ffmpeg(video_file_name)
             .format('mp3')
@@ -137,7 +138,9 @@ download_completed.promise.then(function() {
                 console.log(stderr);
             })
             .on('progress', function(progress) {
-                convert_progress.update(progress.percent, {rate: progress.currentKbps + 'kbps'});
+                var diff = Math.ceil(progress.percent) - last;
+                last = Math.ceil(progress.percent);
+                convert_progress.tick(diff, { rate: progress.currentKbps + 'kbps' });
             })
             .on('end', function() { 
                 console.log('Done converting');
