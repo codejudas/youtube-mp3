@@ -4,13 +4,16 @@
   "description": "Download a youtube video and convert it to mp3",
   "main": "youtube-mp3.js",
   "dependencies": {
-    "pretty-bytes": "^4.0.2",
-    "fluent-ffmpeg": "^2.1.0",
+    "colors": "^1.1.2",
     "commander": "^2.9.0",
+    "deasync": "^0.1.9",
+    "filter-object": "^2.1.0",
+    "fluent-ffmpeg": "^2.1.0",
+    "pretty-bytes": "^4.0.2",
     "progress": "^1.1.8",
-    "ytdl-core": "^0.7.21",
     "q": "^1.4.1",
-    "streamifier": "^0.1.1"
+    "streamifier": "^0.1.1",
+    "ytdl-core": "^0.7.21"
   },
   "devDependencies": {},
   "scripts": {

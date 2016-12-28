@@ -1,23 +1,27 @@
 #!/usr/local/bin/node
 
 var ytdl = require('ytdl-core');
+var filter = require('filter-object');
 var fs = require('fs');
-var ffmpeg = require('fluent-ffmpeg');
 var program = require('commander');
 var q = require('q');
-var pretty_bytes = require('pretty-bytes');
 var ProgressBar = require('progress');
-var FFMetadata = require('ffmetadata');
-var FFProbe = require('node-ffprobe');
+var ffmpeg = require('fluent-ffmpeg');
+var ffMetadata = require('ffmetadata');
+var ffProbe = require('node-ffprobe');
 
+var prettyBytes = require('pretty-bytes');
+var colors = require('colors/safe');
+
+var prompt = require('./prompt.js');
+var util = require('./util.js');
 
 const TITLE_REGEX = /([\S| ]+)-([\S| ]+)/;
-const DISCOG_TOKEN = 'FqMPINiCFFlFYrtXVJszMbmuZKlgqktmZvCsTgRq';
 
 //const PROGRESS_BAR_COMPLETE_CHAR = '\u2588';
-const META_PROGRESS_BAR_FORMAT = '[:bar] :percent in :elapseds';
-const DL_PROGRESS_BAR_FORMAT = '[:bar] :percent @ :rate (:amount) remaining: :etas';
-const CONVERT_PROGRESS_BAR_FORMAT = '[:bar] :percent @ :rate in :elapseds remaining: :etas';
+const META_PROGRESS_BAR_FORMAT = colors.yellow('Downloading metadata\t') + '[:bar] :percent in :elapseds';
+const DL_PROGRESS_BAR_FORMAT = colors.yellow('Downloading video\t') + '[:bar] :percent @ :rate (:amount) remaining: :etas';
+const CONVERT_PROGRESS_BAR_FORMAT = colors.yellow('Converting to mp3\t') + '[:bar] :percent @ :rate in :elapseds remaining: :etas';
 const PROGRESS_BAR_OPTIONS = {
     width: 50,
     complete: '=',
@@ -42,40 +46,41 @@ if (!url) {
     process.exit(1); 
 }
 
-var download_completed = q.defer();
-var convert_completed = q.defer();
-var metadata_completed = q.defer();
+var downloadCompleted = q.defer();
+var convertCompleted = q.defer();
+var metadataCompleted = q.defer();
 
 var data = Buffer.alloc(0);
-var video_metadata = null;
-var video_file_name = null;
-var music_file_name = null;
-var total_size = -1;
+var videoMetadata = null;
+var videoFileName = null;
+var musicFileName = null;
+var totalSize = -1;
 
-var start_time = now_seconds();
+var startTime = util.nowSeconds();
+var endTime = util.nowSeconds();
 
-var download_progress = new ProgressBar(
-    'Downloading metadata\t ' + META_PROGRESS_BAR_FORMAT, 
+var downloadProgress = new ProgressBar(
+    META_PROGRESS_BAR_FORMAT, 
     Object.assign({total: 2}, PROGRESS_BAR_OPTIONS)
 );
 
 /* Start downloading the video */
-var video_stream = ytdl(url, {
+ytdl(url, {
     quality: program.lowQuality ? 'lowest' : 'highest',
     filter: function(format) { return format.container === 'mp4'; }
 })
     .on('info', function(info, format) {
-        download_progress.tick();
-        video_metadata = info;
+        downloadProgress.tick();
+        videoMetadata = info;
     })
     .on('response', function(response) {
-        download_progress.tick();
+        downloadProgress.tick();
         // console.log(response.headers);
-        total_size = parseInt(response.headers['content-length']);
+        totalSize = parseInt(response.headers['content-length']);
         
-        download_progress = new ProgressBar(
-            'Downloading video\t ' + DL_PROGRESS_BAR_FORMAT, 
-            Object.assign({total: total_size}, PROGRESS_BAR_OPTIONS)
+        downloadProgress = new ProgressBar(
+            DL_PROGRESS_BAR_FORMAT, 
+            Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
         );
     })
     .on('error', function(err) {
@@ -84,42 +89,35 @@ var video_stream = ytdl(url, {
     })
     .on('data', function(chunk) {
         data = Buffer.concat([data, chunk], data.length + chunk.length)
-        var now = now_seconds();
-        var dl_rate = data.length / Math.max((now - start_time), 1);
-        download_progress.tick(chunk.length, {
-            'amount': pretty_bytes(data.length) + '/' + pretty_bytes(total_size),
-            'rate': pretty_bytes(dl_rate) + '/s'
+        var now = util.nowSeconds();
+        var dl_rate = data.length / Math.max((now - startTime), 1);
+        downloadProgress.tick(chunk.length, {
+            'amount': prettyBytes(data.length) + '/' + prettyBytes(totalSize),
+            'rate': prettyBytes(dl_rate) + '/s'
         });
     })
     .on('end', function() {
-        download_completed.resolve();
+        downloadCompleted.resolve();
     });
 
 /* Process the video once download is compeleted */
-download_completed.promise.then(function() {
-    console.log('Processing video..');
-
-    video_file_name = video_metadata.title + '.mp4';
-    music_file_name = video_metadata.title + '.mp3';
+downloadCompleted.promise.then(function() {
+    videoFileName = videoMetadata.title + '.mp4';
+    musicFileName = videoMetadata.title + '.mp3';
 
     /* Output to mp4 file */
-    if (program.intermediate) {
-        console.log('Outputting video to ' + video_file_name);
-    } else {
-        video_file_name = '/tmp/' + video_file_name;
-    }
-    fs.writeFileSync(video_file_name, data);
+    if (!program.intermediate) videoFileName = '/tmp/' + videoFileName;
+    fs.writeFileSync(videoFileName, data);
 
     /* Convert to an mp3 */
-    console.log('Outputting audio to ' + music_file_name);
-    var output_music = fs.createWriteStream(music_file_name);
+    var output_music = fs.createWriteStream(musicFileName);
     var convert_progress = new ProgressBar(
-        'Converting to mp3\t ' + CONVERT_PROGRESS_BAR_FORMAT, 
+        CONVERT_PROGRESS_BAR_FORMAT, 
         Object.assign({total: 100}, PROGRESS_BAR_OPTIONS)
     );
     var last = 0;
 
-    ffmpeg(video_file_name)
+    ffmpeg(videoFileName)
         .format('mp3')
         .output(output_music)
         .on('error', function(err, stdout, stderr) { 
@@ -134,75 +132,62 @@ download_completed.promise.then(function() {
             convert_progress.tick(diff, { rate: progress.currentKbps + 'kbps' });
         })
         .on('end', function() { 
-            console.log('Done converting');
-            if (!program.intermediate) { fs.unlinkSync(video_file_name); }
-            convert_completed.resolve();
+            if (!program.intermediate) { fs.unlinkSync(videoFileName); }
+            convertCompleted.resolve();
         })
         .run();
 });
 
 /* Write ID3 tags */
-convert_completed.promise.then(function() {
-    console.log('Writing ID3 tags...');
-    var metadata = process_metadata(video_metadata);
-    FFMetadata.write(music_file_name, metadata, function(err) {
+convertCompleted.promise.then(function() {
+    endTime = util.nowSeconds();
+    var metadata = processMetadata(videoMetadata);
+    var filtered = filter(metadata, function(val) { return !!val; });
+    ffMetadata.write(musicFileName, metadata, function(err) {
         if (err) console.error("Error writing metadata", err);
-        else console.log("ID3 tags written");
+        metadataCompleted.resolve();
     });
-    metadata_completed.resolve();
 });
 
 /* Report on operation */
-metadata_completed.promise.then(function() {
-    console.log('\n-----------');
-    FFProbe(music_file_name, function(err, data) {
+metadataCompleted.promise.then(function() {
+    console.log('\n' + colors.green('Conversion Completed!'));
+    ffProbe(musicFileName, function(err, data) {
         if (err) console.log('Unable to read mp3 file');
         else {
-            var now = now_seconds();
-            console.log('Conversion completed in ' + (now - start_time) + 's.');
-            console.log('File:\t\t' + data.filename);
-            console.log('Size:\t\t' + pretty_bytes(data.format.size));
-            console.log('Length:\t\t' + prettyTime(data.format.duration));
-            console.log('Bit Rate:\t' + pretty_bytes(data.format.bit_rate) + 'ps');
+            console.log(colors.green('Runtime:\t' + util.prettyTime(endTime - startTime)));
+            console.log(colors.green('File:\t\t' + data.filename));
+            console.log(colors.green('Size:\t\t' + prettyBytes(data.format.size)));
+            console.log(colors.green('Length:\t\t' + util.prettyTime(data.format.duration)));
+            console.log(colors.green('Bit Rate:\t' + prettyBytes(data.format.bit_rate) + 'ps'));
         }
     });
 });
 
 /* Helper to parse the youtube metadata */
-function process_metadata(metadata) {
-    console.log('Processing metdata...');
-    const result = {
-        title: metadata.title
+function processMetadata(metadata) {
+    var song_title = metadata.title;
+    var song_artist = null;
+    const meta = {
+        title: null,
+        artist: null,
+        album: null,
+        genre: null,
+        date: null
     };
 
     var song_title_match = TITLE_REGEX.exec(metadata.title);
     if (song_title_match) {
-        result.artist = song_title_match[1].trim();
-        result.album_artist = song_title_match[1].trim();
-        result.title = song_title_match[2].trim();
-    }
-    else {
-        console.log('Video title did not match format "<artist> - <song title>".');
+        meta.artist = song_title_match[1].trim();
+        meta.title = song_title_match[2].trim();
     }
 
-    console.log('metadata: ' + JSON.stringify(result));
-    return result;
-}
+    console.log('\nEnter song metadata:');
+    meta.title = prompt(colors.yellow('Title: '), {required: true, default: meta.title});
+    meta.artist = prompt(colors.yellow('Artist: '), {required: true, default: meta.artist});
+    meta.album = prompt(colors.yellow('Album: '), {required: true});
+    meta.genre = prompt(colors.yellow('Genre: '));
+    meta.date = prompt(colors.yellow('Year: '));
 
-/* Return current time in seconds */
-function now_seconds() {
-    return Math.floor(Date.now() / 1000);
+    return meta;
 }
-
-/* Pretty print time in xm ys */
-function prettyTime(timeInSeconds) {
-    var mins = 0;
-    while(timeInSeconds >= 60) {
-        mins += 1;
-        timeInSeconds -= 60;
-    }
-    var out = Math.round(timeInSeconds) + 'sec';
-    if (mins > 0) { out = mins + 'min ' + out; }
-    return out;
-}
-
