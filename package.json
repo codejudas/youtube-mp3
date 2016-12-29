@@ -17,9 +17,12 @@
     "streamifier": "^0.1.1",
     "ytdl-core": "^0.7.21"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "enclose": "^2.2.0"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean": "rm -f *.mp3 && rm -f *.mp4"
   },
   "author": "Evan Fossier",
   "license": "ISC"
