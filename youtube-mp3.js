@@ -18,7 +18,6 @@ var util = require('./util.js');
 
 const TITLE_REGEX = /([\S| ]+)-([\S| ]+)/;
 
-//const PROGRESS_BAR_COMPLETE_CHAR = '\u2588';
 const META_PROGRESS_BAR_FORMAT = colors.yellow('Downloading metadata\t') + '[:bar] :percent in :elapseds';
 const DL_PROGRESS_BAR_FORMAT = colors.yellow('Downloading video\t') + '[:bar] :percent @ :rate (:amount) remaining: :etas';
 const CONVERT_PROGRESS_BAR_FORMAT = colors.yellow('Converting to mp3\t') + '[:bar] :percent @ :rate in :elapseds remaining: :etas';
@@ -43,8 +42,10 @@ program.lowQuality = !program.lowQuality ? false : true;
 var url = program.args[0];
 if (!url) { 
     program.outputHelp();
-    process.exit(1); 
+    process.exit(55); 
 }
+
+printHeader();
 
 var downloadCompleted = q.defer();
 var convertCompleted = q.defer();
@@ -83,22 +84,17 @@ ytdl(url, {
             Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
         );
     })
-    .on('error', function(err) {
-        console.log('GOT ERROR');
-        console.log(err);
-    })
     .on('data', function(chunk) {
         data = Buffer.concat([data, chunk], data.length + chunk.length)
         var now = util.nowSeconds();
-        var dl_rate = data.length / Math.max((now - startTime), 1);
+        var dlRate = data.length / Math.max((now - startTime), 1);
         downloadProgress.tick(chunk.length, {
             'amount': prettyBytes(data.length) + '/' + prettyBytes(totalSize),
-            'rate': prettyBytes(dl_rate) + '/s'
+            'rate': prettyBytes(dlRate) + '/s'
         });
     })
-    .on('end', function() {
-        downloadCompleted.resolve();
-    });
+    .on('end', function() { downloadCompleted.resolve(); })
+    .on('error', function(err) { error(err, 'Unable to download video from youtube.'); });
 
 /* Process the video once download is compeleted */
 downloadCompleted.promise.then(function() {
@@ -110,8 +106,7 @@ downloadCompleted.promise.then(function() {
     fs.writeFileSync(videoFileName, data);
 
     /* Convert to an mp3 */
-    var output_music = fs.createWriteStream(musicFileName);
-    var convert_progress = new ProgressBar(
+    var convertProgress = new ProgressBar(
         CONVERT_PROGRESS_BAR_FORMAT, 
         Object.assign({total: 100}, PROGRESS_BAR_OPTIONS)
     );
@@ -119,23 +114,19 @@ downloadCompleted.promise.then(function() {
 
     ffmpeg(videoFileName)
         .format('mp3')
-        .output(output_music)
         .on('error', function(err, stdout, stderr) { 
-            console.log('Unable to convert to mp3'); 
-            console.log(err);
-            console.log(stdout);
-            console.log(stderr);
+            error(err, 'Ffmpeg encountered an error converting video to mp3.'); 
         })
         .on('progress', function(progress) {
             var diff = Math.ceil(progress.percent) - last;
             last = Math.ceil(progress.percent);
-            convert_progress.tick(diff, { rate: progress.currentKbps + 'kbps' });
+            convertProgress.tick(diff, { rate: progress.currentKbps + 'kbps' });
         })
         .on('end', function() { 
             if (!program.intermediate) { fs.unlinkSync(videoFileName); }
             convertCompleted.resolve();
         })
-        .run();
+        .save(musicFileName);
 });
 
 /* Write ID3 tags */
@@ -144,14 +135,14 @@ convertCompleted.promise.then(function() {
     var metadata = processMetadata(videoMetadata);
     var filtered = filter(metadata, function(val) { return !!val; });
     ffMetadata.write(musicFileName, metadata, function(err) {
-        if (err) console.error("Error writing metadata", err);
+        if (err) warning(err, "Failed to write mp3 metadata.", err);
         metadataCompleted.resolve();
     });
 });
 
 /* Report on operation */
 metadataCompleted.promise.then(function() {
-    console.log('\n' + colors.green('Conversion Completed!'));
+    console.log('\n' + colors.bold(colors.green('Conversion Completed!')));
     ffProbe(musicFileName, function(err, data) {
         if (err) console.log('Unable to read mp3 file');
         else {
@@ -166,23 +157,21 @@ metadataCompleted.promise.then(function() {
 
 /* Helper to parse the youtube metadata */
 function processMetadata(metadata) {
-    var song_title = metadata.title;
-    var song_artist = null;
     const meta = {
-        title: null,
+        title: metadata.title,
         artist: null,
         album: null,
         genre: null,
         date: null
     };
 
-    var song_title_match = TITLE_REGEX.exec(metadata.title);
-    if (song_title_match) {
-        meta.artist = song_title_match[1].trim();
-        meta.title = song_title_match[2].trim();
+    var songTitleMatch = TITLE_REGEX.exec(metadata.title);
+    if (songTitleMatch) {
+        meta.artist = songTitleMatch[1].trim();
+        meta.title = songTitleMatch[2].trim();
     }
 
-    console.log('\nEnter song metadata:');
+    console.log(colors.bold('\nEnter song metadata:'));
     meta.title = prompt(colors.yellow('Title: '), {required: true, default: meta.title});
     meta.artist = prompt(colors.yellow('Artist: '), {required: true, default: meta.artist});
     meta.album = prompt(colors.yellow('Album: '), {required: true});
@@ -191,3 +180,19 @@ function processMetadata(metadata) {
 
     return meta;
 }
+
+function error(err, msg) {
+    console.log('\n' + colors.bold(colors.red('ERROR: ')) + colors.red(msg));
+    process.exit(25);
+};
+
+function warning(err, msg) {
+    console.log('\n' + colors.bold(colors.yellow('WARNING: ')) + colors.yellow(msg));
+};
+
+function printHeader() {
+	console.log(colors.bold(colors.america("\n__  __             __          __             __              __  ___   ___    ____")));
+	console.log(colors.bold(colors.america("\\ \\/ / ___  __ __ / /_ __ __  / /  ___       / /_ ___        /  |/  /  / _ \\  |_  /")));
+	console.log(colors.bold(colors.america(" \\  / / _ \\/ // // __// // / / _ \\/ -_)     / __// _ \\      / /|_/ /  / ___/ _/_ < ")));
+	console.log(colors.bold(colors.america(" /_/  \\___/\\_,_/ \\__/ \\_,_/ /_.__/\\__/      \\__/ \\___/     /_/  /_/  /_/    /____/ \n")));
+};
