@@ -12,6 +12,7 @@ var ffProbe = require('node-ffprobe');
 
 var prettyBytes = require('pretty-bytes');
 var colors = require('colors/safe');
+var sanitize = require('sanitize-filename');
 
 var prompt = require('./prompt.js');
 var util = require('./util.js');
@@ -98,8 +99,10 @@ ytdl(url, {
 
 /* Process the video once download is compeleted */
 downloadCompleted.promise.then(function() {
-    videoFileName = videoMetadata.title + '.mp4';
-    musicFileName = videoMetadata.title + '.mp3';
+    videoFileName = sanitize(videoMetadata.title + '.mp4');
+    musicFileName = sanitize(videoMetadata.title + '.mp3');
+    console.log(videoFileName);
+    console.log(musicFileName);
 
     /* Output to mp4 file */
     if (!program.intermediate) videoFileName = '/tmp/' + videoFileName;

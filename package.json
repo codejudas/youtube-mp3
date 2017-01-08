@@ -14,6 +14,7 @@
     "pretty-bytes": "^4.0.2",
     "progress": "^1.1.8",
     "q": "^1.4.1",
+    "sanitize-filename": "^1.6.1",
     "streamifier": "^0.1.1",
     "ytdl-core": "^0.7.21"
   },
@@ -23,6 +24,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "clean": "rm -f *.mp3 && rm -f *.mp4"
+  },
+  "bin": {
+    "youtube-mp3": "./youtube-mp3.js"
   },
   "author": "Evan Fossier",
   "license": "ISC"
