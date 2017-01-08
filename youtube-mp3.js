@@ -34,10 +34,12 @@ program
     .usage('[options] <youtube_url>')
     .option('-i, --intermediate', 'output intermediate downloaded video file')
     .option('-l, --low-quality', 'download the video at low quality settings')
+    .option('-v, --verbose', 'print additional information during run, useful for debugging.')
     .parse(process.argv)
 
 /* Default argument values */
 program.lowQuality = !program.lowQuality ? false : true;
+program.verbose = !program.verbose ? false : true;
 
 /* Validate required arguments */
 var url = program.args[0];
@@ -47,6 +49,7 @@ if (!url) {
 }
 
 printHeader();
+debug(colors.yellow('Verbose mode enabled'));
 
 var downloadCompleted = q.defer();
 var convertCompleted = q.defer();
@@ -66,48 +69,58 @@ var downloadProgress = new ProgressBar(
     Object.assign({total: 2}, PROGRESS_BAR_OPTIONS)
 );
 
+debug('Connecting to youtube');
 /* Start downloading the video */
-ytdl(url, {
-    quality: program.lowQuality ? 'lowest' : 'highest',
-    filter: function(format) { return format.container === 'mp4'; }
-})
-    .on('info', function(info, format) {
-        downloadProgress.tick();
-        videoMetadata = info;
-    })
-    .on('response', function(response) {
-        downloadProgress.tick();
-        // console.log(response.headers);
-        totalSize = parseInt(response.headers['content-length']);
-        
-        downloadProgress = new ProgressBar(
-            DL_PROGRESS_BAR_FORMAT, 
-            Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
-        );
-    })
-    .on('data', function(chunk) {
-        data = Buffer.concat([data, chunk], data.length + chunk.length)
-        var now = util.nowSeconds();
-        var dlRate = data.length / Math.max((now - startTime), 1);
-        downloadProgress.tick(chunk.length, {
-            'amount': prettyBytes(data.length) + '/' + prettyBytes(totalSize),
-            'rate': prettyBytes(dlRate) + '/s'
-        });
-    })
-    .on('end', function() { downloadCompleted.resolve(); })
-    .on('error', function(err) { error(err, 'Unable to download video from youtube.'); });
+var youtube_stream = null;
+try {
+    youtube_stream = ytdl(url, {
+        quality: program.lowQuality ? 'lowest' : 'highest',
+        filter: function(format) { return format.container === 'mp4'; }
+    });
+} catch (err) {
+    error(err, err.message);
+}
+
+youtube_stream.on('info', function(info, format) {
+    downloadProgress.tick();
+    videoMetadata = info;
+});
+youtube_stream.on('response', function(response) {
+    downloadProgress.tick();
+    // console.log(response.headers);
+    totalSize = parseInt(response.headers['content-length']);
+    
+    debug('Video file size: ' + prettyBytes(totalSize));
+    debug('Starting video content download');
+    downloadProgress = new ProgressBar(
+        DL_PROGRESS_BAR_FORMAT, 
+        Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
+    );
+});
+youtube_stream.on('data', function(chunk) {
+    data = Buffer.concat([data, chunk], data.length + chunk.length)
+    var now = util.nowSeconds();
+    var dlRate = data.length / Math.max((now - startTime), 1);
+    downloadProgress.tick(chunk.length, {
+        'amount': prettyBytes(data.length) + '/' + prettyBytes(totalSize),
+        'rate': prettyBytes(dlRate) + '/s'
+    });
+});
+youtube_stream.on('end', function() { debug('Download completed'); downloadCompleted.resolve(); })
+youtube_stream.on('error', function(err) { error(err, 'Unable to download video from youtube.'); });
 
 /* Process the video once download is compeleted */
 downloadCompleted.promise.then(function() {
     videoFileName = sanitize(videoMetadata.title + '.mp4');
     musicFileName = sanitize(videoMetadata.title + '.mp3');
-    console.log(videoFileName);
-    console.log(musicFileName);
 
     /* Output to mp4 file */
     if (!program.intermediate) videoFileName = '/tmp/' + videoFileName;
+    debug('Writing video file to ' + videoFileName);
     fs.writeFileSync(videoFileName, data);
+    debug('Done writing ' + videoFileName);
 
+    debug('Converting MP3 to ' + musicFileName);
     /* Convert to an mp3 */
     var convertProgress = new ProgressBar(
         CONVERT_PROGRESS_BAR_FORMAT, 
@@ -126,7 +139,8 @@ downloadCompleted.promise.then(function() {
             convertProgress.tick(diff, { rate: progress.currentKbps + 'kbps' });
         })
         .on('end', function() { 
-            if (!program.intermediate) { fs.unlinkSync(videoFileName); }
+            debug('Finished MP3 conversion');
+            if (!program.intermediate) { debug('Deleting temporary file ' + videoFileName); fs.unlinkSync(videoFileName); }
             convertCompleted.resolve();
         })
         .save(musicFileName);
@@ -134,6 +148,7 @@ downloadCompleted.promise.then(function() {
 
 /* Write ID3 tags */
 convertCompleted.promise.then(function() {
+    debug('Writing MP3 metadata');
     endTime = util.nowSeconds();
     var metadata = processMetadata(videoMetadata);
     var filtered = filter(metadata, function(val) { return !!val; });
@@ -145,10 +160,11 @@ convertCompleted.promise.then(function() {
 
 /* Report on operation */
 metadataCompleted.promise.then(function() {
-    console.log('\n' + colors.bold(colors.green('Conversion Completed!')));
+    debug('Reading ' + musicFileName);
     ffProbe(musicFileName, function(err, data) {
-        if (err) console.log('Unable to read mp3 file');
+        if (err) error(err, 'Unable to read metadata from ' + musicFileName + ', something went wrong?');
         else {
+            console.log('\n' + colors.bold(colors.green('Conversion Completed!')));
             console.log(colors.green('Runtime:\t' + util.prettyTime(endTime - startTime)));
             console.log(colors.green('File:\t\t' + data.filename));
             console.log(colors.green('Size:\t\t' + prettyBytes(data.format.size)));
@@ -170,14 +186,15 @@ function processMetadata(metadata) {
 
     var songTitleMatch = TITLE_REGEX.exec(metadata.title);
     if (songTitleMatch) {
+        debug('Auto-detected song title and artist.');
         meta.artist = songTitleMatch[1].trim();
         meta.title = songTitleMatch[2].trim();
-    }
+    } else { debug('Unable to auto-detect song title and artist.'); }
 
     console.log(colors.bold('\nEnter song metadata:'));
     meta.title = prompt(colors.yellow('Title: '), {required: true, default: meta.title});
     meta.artist = prompt(colors.yellow('Artist: '), {required: true, default: meta.artist});
-    meta.album = prompt(colors.yellow('Album: '), {required: true});
+    meta.album = prompt(colors.yellow('Album: '), {required: true, default: 'Single'});
     meta.genre = prompt(colors.yellow('Genre: '));
     meta.date = prompt(colors.yellow('Year: '));
 
@@ -187,15 +204,21 @@ function processMetadata(metadata) {
 function error(err, msg) {
     console.log('\n' + colors.bold(colors.red('ERROR: ')) + colors.red(msg));
     process.exit(25);
-};
+}
 
 function warning(err, msg) {
     console.log('\n' + colors.bold(colors.yellow('WARNING: ')) + colors.yellow(msg));
-};
+}
+
+function debug(msg) {
+    if (program.verbose) {
+        console.log(msg);
+    }
+}
 
 function printHeader() {
 	console.log(colors.bold(colors.america("\n__  __             __          __             __              __  ___   ___    ____")));
 	console.log(colors.bold(colors.america("\\ \\/ / ___  __ __ / /_ __ __  / /  ___       / /_ ___        /  |/  /  / _ \\  |_  /")));
 	console.log(colors.bold(colors.america(" \\  / / _ \\/ // // __// // / / _ \\/ -_)     / __// _ \\      / /|_/ /  / ___/ _/_ < ")));
 	console.log(colors.bold(colors.america(" /_/  \\___/\\_,_/ \\__/ \\_,_/ /_.__/\\__/      \\__/ \\___/     /_/  /_/  /_/    /____/ \n")));
-};
+}
