@@ -16,6 +16,7 @@ var sanitize = require('sanitize-filename');
 
 var prompt = require('./prompt.js');
 var util = require('./util.js');
+var packageJson = require('./package.json');
 
 const TITLE_REGEX = /([\S| ]+)[-|—]([\S| ]+)/;
 
@@ -30,13 +31,14 @@ const PROGRESS_BAR_OPTIONS = {
 };
 
 program
-    .version('0.1')
+    .version(packageJson.version)
     .usage('[options] <youtube_url>')
+    .description('A simple command line tool to download a youtube video and convert it to an mp3 (v' + packageJson.version +')')
     .option('-o, --output <output_file>', 'output the final mp3 to this file name')
     .option('-i, --intermediate', 'output intermediate downloaded video file')
     .option('-l, --low-quality', 'download the video at low quality settings')
     .option('-v, --verbose', 'print additional information during run, useful for debugging')
-    .option('-s, --separator', 'set the seperator for artist/song in video title')
+    .option('-s, --separator <separator>', 'set the seperator for artist/song in video title')
     .parse(process.argv)
 
 /* Default argument values */
