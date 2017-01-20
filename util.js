@@ -3,14 +3,15 @@ module.exports.nowSeconds = function() {
     return Math.floor(Date.now() / 1000);
 };
 
-/* Pretty print time in xm ys */
+/* Pretty print time in mm:ss */
 module.exports.prettyTime = function(timeInSeconds) {
     var mins = 0;
     while(timeInSeconds >= 60) {
         mins += 1;
         timeInSeconds -= 60;
     }
-    var out = Math.round(timeInSeconds) + 'sec';
-    if (mins > 0) { out = mins + 'min ' + out; }
+    timeInSeconds = Math.round(timeInSeconds);
+    out = timeInSeconds < 10 ? '0' + timeInSeconds : '' + timeInSeconds;
+    out = mins + ':' + out;
     return out;
 };

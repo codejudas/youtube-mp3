@@ -17,7 +17,7 @@ var sanitize = require('sanitize-filename');
 var prompt = require('./prompt.js');
 var util = require('./util.js');
 
-const TITLE_REGEX = /([\S| ]+)-([\S| ]+)/;
+const TITLE_REGEX = /([\S| ]+)[-|—]([\S| ]+)/;
 
 const META_PROGRESS_BAR_FORMAT = colors.yellow('Downloading metadata\t') + '[:bar] :percent in :elapseds';
 const DL_PROGRESS_BAR_FORMAT = colors.yellow('Downloading video\t') + '[:bar] :percent @ :rate (:amount) remaining: :etas';
@@ -32,14 +32,19 @@ const PROGRESS_BAR_OPTIONS = {
 program
     .version('0.1')
     .usage('[options] <youtube_url>')
+    .option('-o, --output <output_file>', 'output the final mp3 to this file name')
     .option('-i, --intermediate', 'output intermediate downloaded video file')
     .option('-l, --low-quality', 'download the video at low quality settings')
-    .option('-v, --verbose', 'print additional information during run, useful for debugging.')
+    .option('-v, --verbose', 'print additional information during run, useful for debugging')
+    .option('-s, --separator', 'set the seperator for artist/song in video title')
     .parse(process.argv)
 
 /* Default argument values */
 program.lowQuality = !program.lowQuality ? false : true;
 program.verbose = !program.verbose ? false : true;
+
+/* TODO: WRITE THE SEPARATOR CODE */
+program.separator = program.separator ? program.separator : '-';
 
 /* Validate required arguments */
 var url = program.args[0];
@@ -51,6 +56,7 @@ if (!url) {
 printHeader();
 debug(colors.yellow('Verbose mode enabled'));
 
+var infoCompleted = q.defer();
 var downloadCompleted = q.defer();
 var convertCompleted = q.defer();
 var metadataCompleted = q.defer();
@@ -66,53 +72,71 @@ var endTime = util.nowSeconds();
 
 var downloadProgress = new ProgressBar(
     META_PROGRESS_BAR_FORMAT, 
-    Object.assign({total: 2}, PROGRESS_BAR_OPTIONS)
+    Object.assign({total: 1}, PROGRESS_BAR_OPTIONS)
 );
 
-debug('Connecting to youtube');
-/* Start downloading the video */
-var youtube_stream = null;
-try {
-    youtube_stream = ytdl(url, {
-        quality: program.lowQuality ? 'lowest' : 'highest',
-        filter: function(format) { return format.container === 'mp4'; }
-    });
-} catch (err) {
-    error(err, err.message);
-}
+debug('Connecting to youtube...');
 
-youtube_stream.on('info', function(info, format) {
+ytdl.getInfo(url, function(err, info) {
+    if (err) error(err, 'Unable to fetch video metadata from youtube.');
     downloadProgress.tick();
-    videoMetadata = info;
-});
-youtube_stream.on('response', function(response) {
-    downloadProgress.tick();
-    // console.log(response.headers);
-    totalSize = parseInt(response.headers['content-length']);
+    var targetFormat = program.lowQuality ? 
+                        smallestSizeFormat(info) :
+                        highestBitrateFormat(info);
     
-    debug('Video file size: ' + prettyBytes(totalSize));
-    debug('Starting video content download');
-    downloadProgress = new ProgressBar(
-        DL_PROGRESS_BAR_FORMAT, 
-        Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
-    );
+    if (!targetFormat) error('No formats of this video contain audio.');
+    debug('Best match: Itag: ' + targetFormat.itag + '. Audio Quality: ' + targetFormat.audioBitrate + 'kbps.');
+
+    videoMetadata = {
+        title: info.title,
+        format: targetFormat
+    };
+    infoCompleted.resolve(videoMetadata);
 });
-youtube_stream.on('data', function(chunk) {
-    data = Buffer.concat([data, chunk], data.length + chunk.length)
-    var now = util.nowSeconds();
-    var dlRate = data.length / Math.max((now - startTime), 1);
-    downloadProgress.tick(chunk.length, {
-        'amount': prettyBytes(data.length) + '/' + prettyBytes(totalSize),
-        'rate': prettyBytes(dlRate) + '/s'
+
+infoCompleted.promise.then(function(metadata) {
+    /* Start downloading the video */
+    var youtube_stream = null;
+    try {
+        youtube_stream = ytdl(url, {quality: metadata.format.itag});
+    } catch (err) {
+        error(err, err.message);
+    }
+
+    youtube_stream.on('response', function(response) {
+        // console.log(response.headers);
+        totalSize = parseInt(response.headers['content-length']);
+        
+        debug('Video file size: ' + prettyBytes(totalSize));
+        debug('Starting video content download');
+        downloadProgress = new ProgressBar(
+            DL_PROGRESS_BAR_FORMAT, 
+            Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
+        );
     });
+    youtube_stream.on('data', function(chunk) {
+        data = Buffer.concat([data, chunk], data.length + chunk.length)
+        var now = util.nowSeconds();
+        var dlRate = data.length / Math.max((now - startTime), 1);
+        downloadProgress.tick(chunk.length, {
+            'amount': prettyBytes(data.length) + '/' + prettyBytes(totalSize),
+            'rate': prettyBytes(dlRate) + '/s'
+        });
+    });
+    youtube_stream.on('end', function() { debug('Download completed'); downloadCompleted.resolve(); })
+    youtube_stream.on('error', function(err) { error(err, 'Unable to download video from youtube.'); });
 });
-youtube_stream.on('end', function() { debug('Download completed'); downloadCompleted.resolve(); })
-youtube_stream.on('error', function(err) { error(err, 'Unable to download video from youtube.'); });
+
 
 /* Process the video once download is compeleted */
 downloadCompleted.promise.then(function() {
-    videoFileName = sanitize(videoMetadata.title + '.mp4');
-    musicFileName = sanitize(videoMetadata.title + '.mp3');
+    videoFileName = './' + sanitize(videoMetadata.title + '.' + (videoMetadata.format.container || 'mp4'));
+    musicFileName = './' + sanitize(videoMetadata.title + '.mp3');
+
+    if (program.output) {
+        musicFileName = sanitize(program.output);
+        musicFileName = musicFileName.endsWith('.mp3') ? musicFileName : musicFileName + '.mp3';
+    }
 
     /* Output to mp4 file */
     if (!program.intermediate) videoFileName = '/tmp/' + videoFileName;
@@ -130,6 +154,7 @@ downloadCompleted.promise.then(function() {
 
     ffmpeg(videoFileName)
         .format('mp3')
+        .audioBitrate(videoMetadata.format.audioBitrate)
         .on('error', function(err, stdout, stderr) { 
             error(err, 'Ffmpeg encountered an error converting video to mp3.'); 
         })
@@ -201,7 +226,47 @@ function processMetadata(metadata) {
     return meta;
 }
 
+function highestBitrateFormat(availableFormats) {
+    debug('Finding highest audio bitrate video...');
+
+    var highestBitrate = 0;
+    var targetFormat = null;
+    
+    for (var i in availableFormats.formats) {
+        let format = availableFormats.formats[i];
+        let bitrate = format.audioBitrate || 0;
+        if (bitrate > highestBitrate) {
+            highestBitrate = bitrate;
+            targetFormat = format;
+        }
+    }
+    return targetFormat;
+}
+
+function smallestSizeFormat(availableFormats) {
+    debug('Finding smallest video size...');
+
+    var targetFormat = null;
+    var smallestSizeBytes = Number.MAX_VALUE;
+    
+    for (var i in availableFormats.formats) {
+        let format = availableFormats.formats[i];
+
+        if (!format.audioBitrate) continue;
+        if (!format.clen) continue;
+
+        let fileSize = parseInt(format.clen);
+
+        if (smallestSizeBytes > fileSize) {
+            smallestSizeBytes = fileSize;
+            targetFormat = format;
+        }
+    }
+    return targetFormat;
+}
+
 function error(err, msg) {
+    if (!msg) msg = err;
     console.log('\n' + colors.bold(colors.red('ERROR: ')) + colors.red(msg));
     process.exit(25);
 }
