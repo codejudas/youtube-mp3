@@ -42,6 +42,7 @@ program
     .option('-l, --low-quality', 'download the video at low quality settings')
     .option('-v, --verbose', 'print additional information during run, useful for debugging')
     .option('-s, --separator <separator>', 'set the seperator for artist/song in video title')
+    .option('-b, --bitrate <rate>', 'set the output mp3 bitrate in kbps')
     .parse(process.argv)
 
 /* Default argument values */
@@ -57,9 +58,12 @@ if (!url) {
     process.exit(55); 
 }
 
+if (program.bitrate && (program.bitrate < 32 || program.bitrate > 320)) error('Bitrate must be between 10 and 320 kbps');
+
 printHeader();
 debug(colors.yellow('Verbose mode enabled'));
 debug('Using ' + program.separator.map(function (e) { return '\'' + e + '\''; }).join(', ') + ' as video title separator(s).');
+if (program.bitrate) debug('Set output mp3 bitrate to ' + program.bitrate + 'kbps.');
 
 var infoCompleted = q.defer();
 var downloadCompleted = q.defer();
@@ -110,7 +114,6 @@ infoCompleted.promise.then(function(metadata) {
     }
 
     youtube_stream.on('response', function(response) {
-        // console.log(response.headers);
         totalSize = parseInt(response.headers['content-length']);
         
         debug('Video file size: ' + prettyBytes(totalSize));
@@ -142,9 +145,8 @@ downloadCompleted.promise.then(function() {
     /* Output to mp4 file */
     if (program.intermediate) videoFileName = path.join('./', path.basename(videoFileName));
 
-    debug('Writing video file to ' + videoFileName);
+    debug('Writing video file to ' + videoFileName + '...');
     fs.writeFileSync(videoFileName, data);
-    debug('Done writing ' + videoFileName);
 
     debug('Converting MP3 to ' + musicFileName);
     /* Convert to an mp3 */
@@ -154,9 +156,11 @@ downloadCompleted.promise.then(function() {
     );
     var last = 0;
 
+    let outputBitrate = program.bitrate || videoMetadata.format.audioBitrate;
+
     ffmpeg(videoFileName)
         .format('mp3')
-        .audioBitrate(videoMetadata.format.audioBitrate)
+        .audioBitrate(outputBitrate)
         .on('error', function(err, stdout, stderr) { 
             error(err, 'Ffmpeg encountered an error converting video to mp3.'); 
         })
