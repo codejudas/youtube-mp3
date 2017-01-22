@@ -9,18 +9,21 @@ var ProgressBar = require('progress');
 var ffmpeg = require('fluent-ffmpeg');
 var ffMetadata = require('ffmetadata');
 var ffProbe = require('node-ffprobe');
+var path = require('path');
+var fsExtra = require('fs-extra');
 
 var prettyBytes = require('pretty-bytes');
 var colors = require('colors/safe');
 var sanitize = require('sanitize-filename');
+var escapeStringRegexp = require('escape-string-regexp');
 
 var prompt = require('./prompt.js');
 var util = require('./util.js');
 var packageJson = require('./package.json');
 
-const TITLE_REGEX = /([\S| ]+)[-|—]([\S| ]+)/;
+const DEFAULT_SEPARATORS = ['-', '—']
 
-const META_PROGRESS_BAR_FORMAT = colors.yellow('Downloading metadata\t') + '[:bar] :percent in :elapseds';
+const META_PROGRESS_BAR_FORMAT = colors.yellow('Downloading metadata\t') + '[:bar] :percent in :elapseds :msg';
 const DL_PROGRESS_BAR_FORMAT = colors.yellow('Downloading video\t') + '[:bar] :percent @ :rate (:amount) remaining: :etas';
 const CONVERT_PROGRESS_BAR_FORMAT = colors.yellow('Converting to mp3\t') + '[:bar] :percent @ :rate in :elapseds remaining: :etas';
 const PROGRESS_BAR_OPTIONS = {
@@ -45,8 +48,7 @@ program
 program.lowQuality = !program.lowQuality ? false : true;
 program.verbose = !program.verbose ? false : true;
 
-/* TODO: WRITE THE SEPARATOR CODE */
-program.separator = program.separator ? program.separator : '-';
+program.separator = program.separator ? [program.separator] : DEFAULT_SEPARATORS;
 
 /* Validate required arguments */
 var url = program.args[0];
@@ -57,6 +59,7 @@ if (!url) {
 
 printHeader();
 debug(colors.yellow('Verbose mode enabled'));
+debug('Using ' + program.separator.map(function (e) { return '\'' + e + '\''; }).join(', ') + ' as video title separator(s).');
 
 var infoCompleted = q.defer();
 var downloadCompleted = q.defer();
@@ -74,20 +77,21 @@ var endTime = util.nowSeconds();
 
 var downloadProgress = new ProgressBar(
     META_PROGRESS_BAR_FORMAT, 
-    Object.assign({total: 1}, PROGRESS_BAR_OPTIONS)
+    Object.assign({total: 2}, PROGRESS_BAR_OPTIONS)
 );
 
 debug('Connecting to youtube...');
 
 ytdl.getInfo(url, function(err, info) {
     if (err) error(err, 'Unable to fetch video metadata from youtube.');
-    downloadProgress.tick();
+    downloadProgress.tick({'msg': ''});
     var targetFormat = program.lowQuality ? 
-                        smallestSizeFormat(info) :
-                        highestBitrateFormat(info);
+                        util.smallestSizeFormat(info) :
+                        util.highestBitrateFormat(info);
     
     if (!targetFormat) error('No formats of this video contain audio.');
-    debug('Best match: Itag: ' + targetFormat.itag + '. Audio Quality: ' + targetFormat.audioBitrate + 'kbps.');
+    downloadProgress.tick(1, {'msg': colors.yellow('bitrate: ' + targetFormat.audioBitrate + 'kbps')});
+    debug('Best match: Itag: ' + targetFormat.itag + '.');
 
     videoMetadata = {
         title: info.title,
@@ -132,16 +136,12 @@ infoCompleted.promise.then(function(metadata) {
 
 /* Process the video once download is compeleted */
 downloadCompleted.promise.then(function() {
-    videoFileName = './' + sanitize(videoMetadata.title + '.' + (videoMetadata.format.container || 'mp4'));
-    musicFileName = './' + sanitize(videoMetadata.title + '.mp3');
-
-    if (program.output) {
-        musicFileName = sanitize(program.output);
-        musicFileName = musicFileName.endsWith('.mp3') ? musicFileName : musicFileName + '.mp3';
-    }
+    videoFileName = '/tmp/' + sanitize(videoMetadata.title + '.' + (videoMetadata.format.container || 'mp4'));
+    musicFileName = '/tmp/' + sanitize(videoMetadata.title + '.mp3');
 
     /* Output to mp4 file */
-    if (!program.intermediate) videoFileName = '/tmp/' + videoFileName;
+    if (program.intermediate) videoFileName = path.join('./', path.basename(videoFileName));
+
     debug('Writing video file to ' + videoFileName);
     fs.writeFileSync(videoFileName, data);
     debug('Done writing ' + videoFileName);
@@ -175,21 +175,37 @@ downloadCompleted.promise.then(function() {
 
 /* Write ID3 tags */
 convertCompleted.promise.then(function() {
-    debug('Writing MP3 metadata');
+    debug('Processing video metadata...');
     endTime = util.nowSeconds();
     var metadata = processMetadata(videoMetadata);
     var filtered = filter(metadata, function(val) { return !!val; });
+    debug('Writing mp3 metadata...');
     ffMetadata.write(musicFileName, metadata, function(err) {
         if (err) warning(err, "Failed to write mp3 metadata.", err);
-        metadataCompleted.resolve();
+        metadataCompleted.resolve(metadata);
     });
 });
 
 /* Report on operation */
-metadataCompleted.promise.then(function() {
-    debug('Reading ' + musicFileName);
-    ffProbe(musicFileName, function(err, data) {
-        if (err) error(err, 'Unable to read metadata from ' + musicFileName + ', something went wrong?');
+metadataCompleted.promise.then(function(metadata) {
+    var outputFileName = './' + metadata.artist + ' - ' + metadata.title + '.mp3';
+
+    if (program.output) {
+        outputFileName = sanitize(program.output);
+        outputFileName = outputFileName.endsWith('.mp3') ? outputFileName : outputFileName + '.mp3';
+    }
+
+    debug('Writing final mp3 file: ' + outputFileName);
+    try {
+        fsExtra.copySync(musicFileName, outputFileName);
+        fs.unlink(musicFileName);
+    } catch (err) {
+        error(err, 'Unable to write ' + outputFileName);
+    }
+
+    debug('Reading ' + outputFileName);
+    ffProbe(outputFileName, function(err, data) {
+        if (err) error(err, 'Unable to read metadata from ' + outputFileName + ', something went wrong?');
         else {
             console.log('\n' + colors.bold(colors.green('Conversion Completed!')));
             console.log(colors.green('Runtime:\t' + util.prettyTime(endTime - startTime)));
@@ -211,11 +227,24 @@ function processMetadata(metadata) {
         date: null
     };
 
-    var songTitleMatch = TITLE_REGEX.exec(metadata.title);
+    var separators = program.separator.map(function(e) { return escapeStringRegexp(e); });
+    separators = separators.join('|');
+
+    var titleRegex = new RegExp('([\\S ]+) (' + separators + ') ([\\S ]+)');
+
+    var songTitleMatch = titleRegex.exec(metadata.title);
     if (songTitleMatch) {
         debug('Auto-detected song title and artist.');
         meta.artist = songTitleMatch[1].trim();
-        meta.title = songTitleMatch[2].trim();
+        meta.title = songTitleMatch[3].trim();
+
+        meta.title = util.trimString(meta.title, '"');
+        meta.title = util.trimString(meta.title, '\'');
+
+        meta.title = util.removeTrailing(meta.title, '(official video)')
+        meta.title = util.removeTrailing(meta.title, 'official video')
+        meta.title = util.removeTrailing(meta.title, 'high quality')
+        meta.title = util.removeTrailing(meta.title, 'lyrics')
     } else { debug('Unable to auto-detect song title and artist.'); }
 
     console.log(colors.bold('\nEnter song metadata:'));
@@ -226,45 +255,6 @@ function processMetadata(metadata) {
     meta.date = prompt(colors.yellow('Year: '));
 
     return meta;
-}
-
-function highestBitrateFormat(availableFormats) {
-    debug('Finding highest audio bitrate video...');
-
-    var highestBitrate = 0;
-    var targetFormat = null;
-    
-    for (var i in availableFormats.formats) {
-        let format = availableFormats.formats[i];
-        let bitrate = format.audioBitrate || 0;
-        if (bitrate > highestBitrate) {
-            highestBitrate = bitrate;
-            targetFormat = format;
-        }
-    }
-    return targetFormat;
-}
-
-function smallestSizeFormat(availableFormats) {
-    debug('Finding smallest video size...');
-
-    var targetFormat = null;
-    var smallestSizeBytes = Number.MAX_VALUE;
-    
-    for (var i in availableFormats.formats) {
-        let format = availableFormats.formats[i];
-
-        if (!format.audioBitrate) continue;
-        if (!format.clen) continue;
-
-        let fileSize = parseInt(format.clen);
-
-        if (smallestSizeBytes > fileSize) {
-            smallestSizeBytes = fileSize;
-            targetFormat = format;
-        }
-    }
-    return targetFormat;
 }
 
 function error(err, msg) {
