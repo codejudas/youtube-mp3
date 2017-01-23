@@ -1,7 +1,6 @@
 #!/usr/local/bin/node
 
 var ytdl = require('ytdl-core');
-var filter = require('filter-object');
 var fs = require('fs');
 var program = require('commander');
 var q = require('q');
@@ -11,6 +10,7 @@ var ffMetadata = require('ffmetadata');
 var ffProbe = require('node-ffprobe');
 var path = require('path');
 var fsExtra = require('fs-extra');
+var request = require('sync-request');
 
 var prettyBytes = require('pretty-bytes');
 var colors = require('colors/safe');
@@ -22,6 +22,8 @@ var util = require('./util.js');
 var packageJson = require('./package.json');
 
 const DEFAULT_SEPARATORS = ['-', '—']
+const ITUNES_API_BASE = 'https://itunes.apple.com/search?term=';
+const METADATA_FIELDS = ['title', 'artist', 'album', 'genre', 'date'];
 
 const META_PROGRESS_BAR_FORMAT = colors.yellow('Downloading metadata\t') + '[:bar] :percent in :elapseds :msg';
 const DL_PROGRESS_BAR_FORMAT = colors.yellow('Downloading video\t') + '[:bar] :percent @ :rate (:amount) remaining: :etas';
@@ -64,6 +66,7 @@ printHeader();
 debug(colors.yellow('Verbose mode enabled'));
 debug('Using ' + program.separator.map(function (e) { return '\'' + e + '\''; }).join(', ') + ' as video title separator(s).');
 if (program.bitrate) debug('Set output mp3 bitrate to ' + program.bitrate + 'kbps.');
+debug('');
 
 var infoCompleted = q.defer();
 var downloadCompleted = q.defer();
@@ -116,8 +119,7 @@ infoCompleted.promise.then(function(metadata) {
     youtube_stream.on('response', function(response) {
         totalSize = parseInt(response.headers['content-length']);
         
-        debug('Video file size: ' + prettyBytes(totalSize));
-        debug('Starting video content download');
+        debug('Video file size: ' + prettyBytes(totalSize) + '\n');
         downloadProgress = new ProgressBar(
             DL_PROGRESS_BAR_FORMAT, 
             Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
@@ -132,7 +134,7 @@ infoCompleted.promise.then(function(metadata) {
             'rate': prettyBytes(dlRate) + '/s'
         });
     });
-    youtube_stream.on('end', function() { debug('Download completed'); downloadCompleted.resolve(); })
+    youtube_stream.on('end', function() { downloadCompleted.resolve(); })
     youtube_stream.on('error', function(err) { error(err, 'Unable to download video from youtube.'); });
 });
 
@@ -148,6 +150,7 @@ downloadCompleted.promise.then(function() {
     debug('Writing video file to ' + videoFileName + '...');
     fs.writeFileSync(videoFileName, data);
 
+    debug('');
     debug('Converting MP3 to ' + musicFileName);
     /* Convert to an mp3 */
     var convertProgress = new ProgressBar(
@@ -170,7 +173,6 @@ downloadCompleted.promise.then(function() {
             convertProgress.tick(diff, { rate: progress.currentKbps + 'kbps' });
         })
         .on('end', function() { 
-            debug('Finished MP3 conversion');
             if (!program.intermediate) { debug('Deleting temporary file ' + videoFileName); fs.unlinkSync(videoFileName); }
             convertCompleted.resolve();
         })
@@ -179,10 +181,17 @@ downloadCompleted.promise.then(function() {
 
 /* Write ID3 tags */
 convertCompleted.promise.then(function() {
-    debug('Processing video metadata...');
+    debug('');
+    debug(colors.yellow('Processing video metadata...'));
     endTime = util.nowSeconds();
-    var metadata = processMetadata(videoMetadata);
-    var filtered = filter(metadata, function(val) { return !!val; });
+
+    var metadata = gatherMetadata(videoMetadata);
+    metadata = util.filter(metadata, function(k, v) { 
+        if (!v) return false;
+        return METADATA_FIELDS.includes(k);
+    });
+
+    debug('');
     debug('Writing mp3 metadata...');
     ffMetadata.write(musicFileName, metadata, function(err) {
         if (err) warning(err, "Failed to write mp3 metadata.", err);
@@ -222,7 +231,7 @@ metadataCompleted.promise.then(function(metadata) {
 });
 
 /* Helper to parse the youtube metadata */
-function processMetadata(metadata) {
+function gatherMetadata(metadata) {
     const meta = {
         title: metadata.title,
         artist: null,
@@ -231,12 +240,85 @@ function processMetadata(metadata) {
         date: null
     };
 
+    /* First try reading from itunes api */
+    var result = loadItunesMeta(metadata.title);
+    if (result.success) {
+        Object.assign(meta, result);
+    } else {
+        /* Fallback to parsing video title if no results from itunes */
+        debug('Falling back to parsing video title...');
+        result = parseVideoTitle(metadata.title);
+        if (result.success) {
+            meta.title = result.title;
+            meta.artist = result.artist;
+            /* Try searching itunes with cleaner search term */
+            result = loadItunesMeta(meta.artist + ' ' + meta.title);
+            if (result.success) {
+                Object.assign(meta, result);
+            }
+        }
+    }
+
+    /* Use discovered values as defaults for user to confirm */
+    console.log(colors.bold('\nEnter song metadata:'));
+    meta.title = prompt(colors.yellow('Title: '), {required: true, default: meta.title});
+    meta.artist = prompt(colors.yellow('Artist: '), {required: true, default: meta.artist});
+    meta.album = prompt(colors.yellow('Album: '), {required: true, default: meta.album});
+    meta.genre = prompt(colors.yellow('Genre: '), {default: meta.genre});
+    meta.date = prompt(colors.yellow('Year: '), {default: meta.date});
+
+    return meta;
+}
+
+/* Helper that uses the Itunes API to auto-detect song metadata */
+function loadItunesMeta(searchTerm) {
+    let url = ITUNES_API_BASE + encodeURIComponent(searchTerm);
+    debug('Searching Itunes for \'' + searchTerm + '\' (' + url + ')');
+    let response = request('GET', url);
+    
+    if (response.statusCode !== 200) {
+        debug('Itunes API returned ' + response.statusCode + ' status code.');
+        return { success: false };
+    }
+
+    let results = JSON.parse(response.getBody('utf8')).results || [];
+
+    results.filter(e => { 
+        if (e.kind !== 'song') return false;
+        if (searchTerm.search(new RegExp(e.trackName, 'i')) < 0) return false;
+        if (searchTerm.search(new RegExp(e.artistName, 'i')) < 0) return false;
+        return true;
+    });
+
+    let match = results.shift();
+    if (!match) {
+        debug('No matches found on Itunes.');
+        return { success: false };
+    }
+
+    debug('Found a match on Itunes.');
+    return {
+        success: true,
+        title: match.trackName,
+        artist: match.artistName,
+        album: match.collectionName,
+        albumUrl: match.artworkUrl100,
+        trackNum: match.trackNumber,
+        trackCount: match.trackCount,
+        genre: match.primaryGenreName,
+        date: match.releaseDate.slice(0,4)
+    };
+}
+
+/* Parses the video title to extract song title and artist, trim unnecessary info */
+function parseVideoTitle(videoTitle) {
+    let meta = {success: false};
+
     var separators = program.separator.map(function(e) { return escapeStringRegexp(e); });
     separators = separators.join('|');
-
     var titleRegex = new RegExp('([\\S ]+) (' + separators + ') ([\\S ]+)');
 
-    var songTitleMatch = titleRegex.exec(metadata.title);
+    var songTitleMatch = titleRegex.exec(videoTitle);
     if (songTitleMatch) {
         debug('Auto-detected song title and artist.');
         meta.artist = songTitleMatch[1].trim();
@@ -245,19 +327,13 @@ function processMetadata(metadata) {
         meta.title = util.trimString(meta.title, '"');
         meta.title = util.trimString(meta.title, '\'');
 
-        meta.title = util.removeTrailing(meta.title, '(official video)')
-        meta.title = util.removeTrailing(meta.title, 'official video')
-        meta.title = util.removeTrailing(meta.title, 'high quality')
-        meta.title = util.removeTrailing(meta.title, 'lyrics')
-    } else { debug('Unable to auto-detect song title and artist.'); }
+        meta.title = util.removeTrailing(meta.title, '(official video)');
+        meta.title = util.removeTrailing(meta.title, 'official video');
+        meta.title = util.removeTrailing(meta.title, 'high quality');
+        meta.title = util.removeTrailing(meta.title, 'lyrics');
 
-    console.log(colors.bold('\nEnter song metadata:'));
-    meta.title = prompt(colors.yellow('Title: '), {required: true, default: meta.title});
-    meta.artist = prompt(colors.yellow('Artist: '), {required: true, default: meta.artist});
-    meta.album = prompt(colors.yellow('Album: '), {required: true, default: 'Single'});
-    meta.genre = prompt(colors.yellow('Genre: '));
-    meta.date = prompt(colors.yellow('Year: '));
-
+        meta.success = true;
+    } else { debug('Unable to auto-detect song title and artist from video title.'); }
     return meta;
 }
 

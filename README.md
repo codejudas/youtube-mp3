@@ -2,13 +2,15 @@
 A simple command line app to download a youtube video, convert it to an mp3, and write mp3 metadata to the output file.
 
 ## Installation
-Clone the repository onto your local machine and then run:
+
+*Prerequisites:* You must have nodejs installed on your machine, you can get it [here](https://nodejs.org/en/).
 
 ```bash
+git clone https://github.com/efossier/youtube-mp3
+cd youtube-mp3
 npm install -g
+youtube-mp3 -h
 ```
-
-Once completed you will be able to invoke the app anywhere on your computer by typing `youtube-mp3`.
 
 ## Usage
 

@@ -5,6 +5,15 @@ module.exports.nowSeconds = function() {
     return Math.floor(Date.now() / 1000);
 };
 
+/* Filter an object by its keys or values */
+module.exports.filter = function(obj, predicate) {
+    var result = {};
+    Object.keys(obj).forEach(k => { 
+        if (predicate(k, obj[k])) result[k] = obj[k]; 
+    });
+    return result;
+};
+
 /* Pretty print time in mm:ss */
 module.exports.prettyTime = function(timeInSeconds) {
     var mins = 0;

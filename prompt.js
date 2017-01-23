@@ -1,5 +1,6 @@
 const readline = require('readline');
 
+/* Synchronous prompt for user input */
 module.exports = function(message, options) {
     options = options || {};
     const rl = readline.createInterface({
@@ -11,7 +12,7 @@ module.exports = function(message, options) {
 
     rl.setPrompt(message);
     rl.prompt();
-    if (options.default) rl.write(options.default);
+    if (options.default) rl.write(String(options.default));
 
     rl.on('line', (line) => {
         line = line.trim();
