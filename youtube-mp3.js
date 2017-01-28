@@ -113,7 +113,7 @@ infoCompleted.promise.then(function(metadata) {
     try {
         youtube_stream = ytdl(url, {quality: metadata.format.itag});
     } catch (err) {
-        error(err, err.message);
+        error(err, 'Unable to download video from youtube.');
     }
 
     youtube_stream.on('response', function(response) {
@@ -135,7 +135,7 @@ infoCompleted.promise.then(function(metadata) {
         });
     });
     youtube_stream.on('end', function() { downloadCompleted.resolve(); })
-    youtube_stream.on('error', function(err) { error(err, 'Unable to download video from youtube.'); });
+    youtube_stream.on('error', function(err) { error(err, 'Unexpected problem while downloading video.'); });
 });
 
 
@@ -213,12 +213,12 @@ metadataCompleted.promise.then(function(metadata) {
         fsExtra.copySync(musicFileName, outputFileName);
         fs.unlink(musicFileName);
     } catch (err) {
-        error(err, 'Unable to write ' + outputFileName);
+        error(err, 'Unable to write ' + outputFileName + '.');
     }
 
     debug('Reading ' + outputFileName);
     ffProbe(outputFileName, function(err, data) {
-        if (err) error(err, 'Unable to read metadata from ' + outputFileName + ', something went wrong?');
+        if (err) error(err, 'Unable to read metadata from ' + outputFileName + '.');
         else {
             console.log('\n' + colors.bold(colors.green('Conversion Completed!')));
             console.log(colors.green('Runtime:\t' + util.prettyTime(endTime - startTime)));
@@ -263,7 +263,7 @@ function gatherMetadata(metadata) {
     console.log(colors.bold('\nEnter song metadata:'));
     meta.title = prompt(colors.yellow('Title: '), {required: true, default: meta.title});
     meta.artist = prompt(colors.yellow('Artist: '), {required: true, default: meta.artist});
-    meta.album = prompt(colors.yellow('Album: '), {required: true, default: meta.album});
+    meta.album = prompt(colors.yellow('Album: '), {required: true, default: meta.album || 'Single'});
     meta.genre = prompt(colors.yellow('Genre: '), {default: meta.genre});
     meta.date = prompt(colors.yellow('Year: '), {default: meta.date});
 
@@ -340,6 +340,7 @@ function parseVideoTitle(videoTitle) {
 function error(err, msg) {
     if (!msg) msg = err;
     console.log('\n' + colors.bold(colors.red('ERROR: ')) + colors.red(msg));
+    console.log(colors.red(err));
     process.exit(25);
 }
 
@@ -358,4 +359,5 @@ function printHeader() {
 	console.log(colors.bold(colors.america("\\ \\/ / ___  __ __ / /_ __ __  / /  ___       / /_ ___        /  |/  /  / _ \\  |_  /")));
 	console.log(colors.bold(colors.america(" \\  / / _ \\/ // // __// // / / _ \\/ -_)     / __// _ \\      / /|_/ /  / ___/ _/_ < ")));
 	console.log(colors.bold(colors.america(" /_/  \\___/\\_,_/ \\__/ \\_,_/ /_.__/\\__/      \\__/ \\___/     /_/  /_/  /_/    /____/ \n")));
+	console.log(colors.bold(colors.america("                                      (" + packageJson.version + ")\n")));
 }
