@@ -11,6 +11,7 @@
     "ffmetadata": "^1.4.0",
     "fluent-ffmpeg": "^2.1.0",
     "fs-extra": "^2.0.0",
+    "nexe": "^1.1.2",
     "node-ffprobe": "^1.2.2",
     "pretty-bytes": "^4.0.2",
     "progress": "^1.1.8",
@@ -18,7 +19,7 @@
     "sanitize-filename": "^1.6.1",
     "streamifier": "^0.1.1",
     "sync-request": "^4.0.1",
-    "ytdl-core": "^0.7.21"
+    "ytdl-core": "^0.7.24"
   },
   "devDependencies": {
     "nexe": "^1.1.2"

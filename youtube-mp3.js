@@ -1,25 +1,26 @@
 #!/usr/local/bin/node
+const fluent_ffmpeg = './node_modules/fluent-ffmpeg';
 
-var ytdl = require('ytdl-core');
-var fs = require('fs');
-var program = require('commander');
-var q = require('q');
-var ProgressBar = require('progress');
-var ffmpeg = require('fluent-ffmpeg');
-var ffMetadata = require('ffmetadata');
-var ffProbe = require('node-ffprobe');
-var path = require('path');
-var fsExtra = require('fs-extra');
-var request = require('sync-request');
+const ytdl = require('ytdl-core');
+const fs = require('fs');
+const program = require('commander');
+const q = require('q');
+const ProgressBar = require('progress');
+const ffmpeg = require(fluent_ffmpeg);
+const ffMetadata = require('ffmetadata');
+const ffProbe = require('node-ffprobe');
+const path = require('path');
+const fsExtra = require('fs-extra');
+const request = require('sync-request');
 
-var prettyBytes = require('pretty-bytes');
-var colors = require('colors/safe');
-var sanitize = require('sanitize-filename');
-var escapeStringRegexp = require('escape-string-regexp');
+const prettyBytes = require('pretty-bytes');
+const colors = require('colors/safe');
+const sanitize = require('sanitize-filename');
+const escapeStringRegexp = require('escape-string-regexp');
 
-var prompt = require('./prompt.js');
-var util = require('./util.js');
-var packageJson = require('./package.json');
+const prompt = require('./prompt.js');
+const util = require('./util.js');
+const packageJson = require('./package.json');
 
 const DEFAULT_SEPARATORS = ['-', '—']
 const ITUNES_API_BASE = 'https://itunes.apple.com/search?term=';
