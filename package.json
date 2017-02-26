@@ -1,6 +1,6 @@
 {
   "name": "youtube-mp3",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Download a youtube video and convert it to mp3, write music metadata.",
   "main": "./youtube-mp3.js",
   "dependencies": {
