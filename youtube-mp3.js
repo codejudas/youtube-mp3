@@ -212,7 +212,7 @@ metadataCompleted.promise.then(function(metadata) {
     debug('Writing final mp3 file: ' + outputFileName);
     try {
         fsExtra.copySync(musicFileName, outputFileName);
-        fs.unlink(musicFileName);
+        fs.unlinkSync(musicFileName);
     } catch (err) {
         error(err, 'Unable to write ' + outputFileName + '.');
     }
@@ -267,6 +267,8 @@ function gatherMetadata(metadata) {
     meta.album = prompt(colors.yellow('Album: '), {required: true, default: meta.album || 'Single'});
     meta.genre = prompt(colors.yellow('Genre: '), {default: meta.genre});
     meta.date = prompt(colors.yellow('Year: '), {default: meta.date});
+    warning('Done w/ shit');
+    
 
     return meta;
 }
@@ -341,7 +343,7 @@ function parseVideoTitle(videoTitle) {
 function error(err, msg) {
     if (!msg) msg = err;
     console.log('\n' + colors.bold(colors.red('ERROR: ')) + colors.red(msg));
-    console.log(colors.red(err));
+    console.log(colors.red(err.stack));
     process.exit(25);
 }
 
