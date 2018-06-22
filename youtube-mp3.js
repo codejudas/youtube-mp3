@@ -267,8 +267,6 @@ function gatherMetadata(metadata) {
     meta.album = prompt(colors.yellow('Album: '), {required: true, default: meta.album || 'Single'});
     meta.genre = prompt(colors.yellow('Genre: '), {default: meta.genre});
     meta.date = prompt(colors.yellow('Year: '), {default: meta.date});
-    warning('Done w/ shit');
-    
 
     return meta;
 }
