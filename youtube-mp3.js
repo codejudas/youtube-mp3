@@ -101,10 +101,19 @@ ytdl.getInfo(url, function(err, info) {
     downloadProgress.tick(1, {'msg': colors.yellow('bitrate: ' + targetFormat.audioBitrate + 'kbps')});
     debug('Best match: Itag: ' + targetFormat.itag + '.');
 
+    var title = 'music';
+    try {
+    	title = info.title || (info.media.artist + ' - ' + info.media.song);
+    } catch (e) {
+	debug('Unable to determine song name');
+    }
+
     videoMetadata = {
-        title: info.title,
+        title: title,
         format: targetFormat
     };
+    debug('Video metadata: ' + JSON.stringify(videoMetadata));
+
     infoCompleted.resolve(videoMetadata);
 });
 
