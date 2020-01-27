@@ -1,6 +1,6 @@
 {
   "name": "youtube-mp3",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Download a youtube video and convert it to mp3, write music metadata.",
   "main": "./youtube-mp3.js",
   "dependencies": {
@@ -18,7 +18,7 @@
     "sanitize-filename": "^1.6.1",
     "streamifier": "^0.1.1",
     "sync-request": "^4.1.0",
-    "ytdl-core": "^0.29.3"
+    "ytdl-core": "^1.0.7"
   },
   "devDependencies": {
     "nexe": "^1.1.6"
