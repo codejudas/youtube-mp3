@@ -1,6 +1,6 @@
 {
   "name": "youtube-mp3",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "Download a youtube video and convert it to mp3, write music metadata.",
   "main": "./youtube-mp3.js",
   "dependencies": {
@@ -14,6 +14,7 @@
     "node-ffprobe": "^1.2.2",
     "pretty-bytes": "^4.0.2",
     "progress": "^1.1.8",
+    "prompt-sync": "^4.2.0",
     "q": "^1.5.1",
     "sanitize-filename": "^1.6.1",
     "streamifier": "^0.1.1",
