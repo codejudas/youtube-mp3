@@ -90,8 +90,8 @@ var downloadProgress = new ProgressBar(
 
 debug('Connecting to youtube...');
 
-ytdl.getInfo(url, function(err, info) {
-    if (err) error(err, 'Unable to fetch video metadata from youtube.');
+ytdl.getInfo(url)
+  .then(function(info) {
     downloadProgress.tick({'msg': ''});
     var targetFormat = program.lowQuality ? 
                         util.smallestSizeFormat(info) :
@@ -115,37 +115,41 @@ ytdl.getInfo(url, function(err, info) {
     debug('Video metadata: ' + JSON.stringify(videoMetadata));
 
     infoCompleted.resolve(videoMetadata);
-});
+  })
+  .catch(err => error(err, 'Unable to fetch video metadata from youtube.'));
 
 infoCompleted.promise.then(function(metadata) {
     /* Start downloading the video */
-    var youtube_stream = null;
     try {
-        youtube_stream = ytdl(url, {quality: metadata.format.itag});
+        var dlStartTime = util.nowSeconds();
+        youtube_stream = ytdl(url, {quality: metadata.format.itag})
+            .on('progress', function(chunkLen, totalDownloaded, totalSize) {
+                var downloadedBytes = chunkLen * totalDownloaded;
+                totalSize = chunkLen * totalSize;
+
+                if (!downloadProgress) {
+                    downloadProgress = new ProgressBar(
+                        DL_PROGRESS_BAR_FORMAT, 
+                        Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
+                    );
+                }
+
+                var now = util.nowSeconds();
+                var ratio = downloadedBytes / totalSize;
+                var dlRate = downloadedBytes / Math.max((now - dlStartTime), 1);
+                downloadProgress.update(ratio, {
+                    'amount': prettyBytes(downloadedBytes) + '/' + prettyBytes(totalSize),
+                    'rate': prettyBytes(dlRate) + '/s'
+                });
+            })
+            .on('data', function(chunk) {
+                data = Buffer.concat([data, chunk], data.length + chunk.length)
+            })
+            .on('end', function() { downloadCompleted.resolve(); })
+            .on('error', function(err) { error(err, 'Unexpected problem while downloading video.'); })
     } catch (err) {
         error(err, 'Unable to download video from youtube.');
     }
-
-    youtube_stream.on('response', function(response) {
-        totalSize = parseInt(response.headers['content-length']);
-        
-        debug('Video file size: ' + prettyBytes(totalSize) + '\n');
-        downloadProgress = new ProgressBar(
-            DL_PROGRESS_BAR_FORMAT, 
-            Object.assign({total: totalSize}, PROGRESS_BAR_OPTIONS)
-        );
-    });
-    youtube_stream.on('data', function(chunk) {
-        data = Buffer.concat([data, chunk], data.length + chunk.length)
-        var now = util.nowSeconds();
-        var dlRate = data.length / Math.max((now - startTime), 1);
-        downloadProgress.tick(chunk.length, {
-            'amount': prettyBytes(data.length) + '/' + prettyBytes(totalSize),
-            'rate': prettyBytes(dlRate) + '/s'
-        });
-    });
-    youtube_stream.on('end', function() { downloadCompleted.resolve(); })
-    youtube_stream.on('error', function(err) { error(err, 'Unexpected problem while downloading video.'); });
 });
 
 
