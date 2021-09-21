@@ -81,3 +81,14 @@ module.exports.smallestSizeFormat = function(availableFormats) {
     }
     return targetFormat;
 }
+
+/* Try to guess the name of the song */
+module.exports.parseSongName = function(videoDetails) {
+    var songName = null;
+
+    const artist = videoDetails.media && videoDetails.media.artist;
+    const song = videoDetails.media && videoDetails.media.song;
+    const syntheticTitle = artist + ' - ' + song;
+
+    return syntheticTitle || videoDetails.title;
+}

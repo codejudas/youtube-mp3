@@ -101,11 +101,11 @@ ytdl.getInfo(url)
     downloadProgress.tick(1, {'msg': colors.yellow('bitrate: ' + targetFormat.audioBitrate + 'kbps')});
     debug('Best match: Itag: ' + targetFormat.itag + '.');
 
-    var title = 'music';
+    var title = 'unknown';
     try {
-    	title = info.title || (info.media.artist + ' - ' + info.media.song);
+    	title = util.parseSongName(info.videoDetails);
     } catch (e) {
-	debug('Unable to determine song name');
+        debug('Unable to determine song name due to: ' + e.stack);
     }
 
     videoMetadata = {
