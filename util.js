@@ -1,13 +1,13 @@
-let escapeStringRegexp = require('escape-string-regexp');
+import escapeStringRegexp from 'escape-string-regexp';
 
 /* Return current time in seconds */
-module.exports.nowSeconds = function() {
+export function nowSeconds() {
     return Math.floor(Date.now() / 1000);
 };
 
 /* Filter an object by its keys or values */
-module.exports.filter = function(obj, predicate) {
-    var result = {};
+export function filter(obj, predicate) {
+    let result = {};
     Object.keys(obj).forEach(k => { 
         if (predicate(k, obj[k])) result[k] = obj[k]; 
     });
@@ -15,27 +15,27 @@ module.exports.filter = function(obj, predicate) {
 };
 
 /* Pretty print time in mm:ss */
-module.exports.prettyTime = function(timeInSeconds) {
-    var mins = 0;
+export function prettyTime(timeInSeconds) {
+    let mins = 0;
     while(timeInSeconds >= 60) {
         mins += 1;
         timeInSeconds -= 60;
     }
     timeInSeconds = Math.round(timeInSeconds);
-    out = timeInSeconds < 10 ? '0' + timeInSeconds : '' + timeInSeconds;
+    let out = timeInSeconds < 10 ? '0' + timeInSeconds : '' + timeInSeconds;
     out = mins + ':' + out;
     return out;
 };
 
 /* Remove character from ends of string if present */
-module.exports.trimString = function(string, character) {
+export function trimString(string, character) {
     if (string.startsWith(character)) string = string.slice(1);
     if (string.endsWith(character)) string = string.slice(0,-1);
     return string.trim();
 };
 
 /* Remove subtr from string if string ends with substr */
-module.exports.removeTrailing = function(string, substring) {
+export function removeTrailing(string, substring) {
     substring = escapeStringRegexp(substring);
     let regex = new RegExp('[\\S ](' + substring + ')$', 'i');
     if (regex.exec(string)) {
@@ -46,7 +46,7 @@ module.exports.removeTrailing = function(string, substring) {
 
 
 /* Return the format with the highest audio bitrate in availableFormats */
-module.exports.highestBitrateFormat = function(availableFormats) {
+export function highestBitrateFormat(availableFormats) {
     var highestBitrate = 0;
     var targetFormat = null;
     
@@ -62,7 +62,7 @@ module.exports.highestBitrateFormat = function(availableFormats) {
 };
 
 /* Return the format with the highest audio bitrate in availableFormats */
-module.exports.smallestSizeFormat = function(availableFormats) {
+export function smallestSizeFormat(availableFormats) {
     var targetFormat = null;
     var smallestSizeBytes = Number.MAX_VALUE;
     
@@ -83,7 +83,7 @@ module.exports.smallestSizeFormat = function(availableFormats) {
 }
 
 /* Try to guess the name of the song */
-module.exports.parseSongName = function(videoDetails) {
+export function parseSongName(videoDetails) {
     var songName = null;
 
     const artist = videoDetails.media && videoDetails.media.artist;
@@ -91,4 +91,30 @@ module.exports.parseSongName = function(videoDetails) {
     const syntheticTitle = artist + ' - ' + song;
 
     return syntheticTitle || videoDetails.title;
+}
+
+/* Parses the video title to extract song title and artist, trim unnecessary info */
+export function parseVideoTitle(videoTitle, separators) {
+    let meta = {success: false};
+
+    const escapedSeps = separators.map((e) => escapeStringRegexp(e));
+    separators = separators.join('|');
+    const titleRegex = new RegExp('([\\S ]+) (' + escapedSeps + ') ([\\S ]+)');
+
+    const songTitleMatch = titleRegex.exec(videoTitle);
+    if (songTitleMatch) {
+        meta.artist = songTitleMatch[1].trim();
+        meta.title = songTitleMatch[3].trim();
+
+        meta.title = util.trimString(meta.title, '"');
+        meta.title = util.trimString(meta.title, '\'');
+
+        meta.title = util.removeTrailing(meta.title, '(official video)');
+        meta.title = util.removeTrailing(meta.title, 'official video');
+        meta.title = util.removeTrailing(meta.title, 'high quality');
+        meta.title = util.removeTrailing(meta.title, 'lyrics');
+
+        meta.success = true;
+    }
+    return meta;
 }

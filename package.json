@@ -1,11 +1,12 @@
 {
   "name": "youtube-mp3",
-  "version": "1.2.7",
+  "version": "2.0.0",
   "description": "Download a youtube video and convert it to mp3, write music metadata.",
   "main": "./youtube-mp3.js",
+  "type": "module",
   "dependencies": {
-    "colors": "^1.4.0",
-    "commander": "^2.20.3",
+    "chalk": "^4.1.2",
+    "commander": "^8.2.0",
     "deasync": "^0.1.20",
     "escape-string-regexp": "^1.0.5",
     "ffmetadata": "^1.6.0",
@@ -14,12 +15,11 @@
     "node-ffprobe": "^1.2.2",
     "pretty-bytes": "^4.0.2",
     "progress": "^2.0.3",
-    "prompt-sync": "^4.2.0",
-    "q": "^1.5.1",
+    "prompt": "^1.2.0",
     "sanitize-filename": "^1.6.3",
     "streamifier": "^0.1.1",
     "sync-request": "^4.1.0",
-    "ytdl-core": "^4.9.1"
+    "ytdl-core": "^4.10.0"
   },
   "devDependencies": {
     "nexe": "^1.1.6"
