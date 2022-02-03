@@ -10,6 +10,7 @@ import * as path from 'path';
 import fsExtra from 'fs-extra';
 import request from 'sync-request';
 import prompt from 'prompt';
+import { fileURLToPath } from 'url';
 
 import prettyBytes from 'pretty-bytes';
 import chalk from 'chalk';
@@ -428,6 +429,9 @@ function printHeader() {
  * @returns The current version of the program as a string.
  */
 function getVersion() {
-  const packageJson = JSON.parse(fs.readFileSync('./package.json'));
+  // For some reason just getting the package.json via relative path doesnt work, and __dirname or __filename also dont work (at least on my computer).
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const packageJsonFile = path.join(__dirname, 'package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonFile));
   return packageJson.version;
 }
