@@ -19,7 +19,7 @@
     "sanitize-filename": "^1.6.3",
     "streamifier": "^0.1.1",
     "sync-request": "^4.1.0",
-    "ytdl-core": "^4.11.1"
+    "ytdl-core": "^4.11.2"
   },
   "devDependencies": {
     "nexe": "^1.1.6"
