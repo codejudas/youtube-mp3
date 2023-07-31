@@ -1,4 +1,4 @@
-#!/usr/local/bin/node
+#!/usr/bin/env node
 import ytdl from 'ytdl-core';
 import * as fs from 'fs';
 import { Command } from 'commander/esm.mjs';
